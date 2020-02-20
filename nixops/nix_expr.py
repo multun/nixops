@@ -157,7 +157,7 @@ def py2nix(value, initial_indentation=0, maxwidth=80, inline=False):
             ("\t", "\\t"),
         ])
 
-        inline_variant = RawValue(u'"{0}"'.format(encoded))
+        inline_variant = RawValue('"{0}"'.format(encoded))
 
         if for_attribute:
             return inline_variant.value
@@ -181,7 +181,7 @@ def py2nix(value, initial_indentation=0, maxwidth=80, inline=False):
         while len(nodes) == 1 and isinstance(nodes[0], list):
             nodes = nodes[0]
             pre, post = pre + " [", post + " ]"
-        return Container(pre, list(map(lambda n: _enc(n, inlist=True), nodes)), post)
+        return Container(pre, list([_enc(n, inlist=True) for n in nodes]), post)
 
     def _enc_key(key):
         if not isinstance(key, str):
@@ -274,7 +274,7 @@ def expand_dict(unexpanded):
     {'a': {'b': 'c', 'd': {'e': 'f'}}}
     """
     paths, strings = [], {}
-    for key, val in unexpanded.items():
+    for key, val in list(unexpanded.items()):
         if isinstance(key, tuple):
             if len(key) == 0:
                 raise KeyError("invalid key {0}".format(repr(key)))
@@ -289,7 +289,7 @@ def expand_dict(unexpanded):
             strings[key] = val
 
     return {key: (expand_dict(val) if isinstance(val, dict) else val)
-            for key, val in functools.reduce(nixmerge, paths + [strings]).items()}
+            for key, val in list(functools.reduce(nixmerge, paths + [strings]).items())}
 
 
 def nixmerge(expr1, expr2):
@@ -299,7 +299,7 @@ def nixmerge(expr1, expr2):
     """
     def _merge_dicts(d1, d2):
         out = {}
-        for key in set(d1.keys()).union(d2.keys()):
+        for key in set(d1.keys()).union(list(d2.keys())):
             if key in d1 and key in d2:
                 out[key] = _merge(d1[key], d2[key])
             elif key in d1:

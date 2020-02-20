@@ -10,7 +10,7 @@ class RootLoggerTest(unittest.TestCase):
         self.root_logger = Logger(self.logfile)
 
     def assert_log(self, value):
-        self.assertEquals(self.logfile.getvalue(), value)
+        self.assertEqual(self.logfile.getvalue(), value)
 
     def test_simple(self):
         self.root_logger.log("line1")

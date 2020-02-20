@@ -29,6 +29,7 @@ import inspect
 import time
 import importlib
 from nixops.plugins import get_plugin_manager
+from functools import reduce
 
 class NixEvalError(Exception):
     pass
@@ -96,15 +97,15 @@ class Deployment(object):
 
     @property
     def machines(self):
-        return {n: r for n, r in self.resources.items() if is_machine(r)}
+        return {n: r for n, r in list(self.resources.items()) if is_machine(r)}
 
     @property
     def active(self): # FIXME: rename to "active_machines"
-        return {n: r for n, r in self.resources.items() if is_machine(r) and not r.obsolete}
+        return {n: r for n, r in list(self.resources.items()) if is_machine(r) and not r.obsolete}
 
     @property
     def active_resources(self):
-        return {n: r for n, r in self.resources.items() if not r.obsolete}
+        return {n: r for n, r in list(self.resources.items()) if not r.obsolete}
 
 
     def get_typed_resource(self, name, type):
@@ -129,7 +130,7 @@ class Deployment(object):
         """Update deployment attributes in the state file."""
         with self._db:
             c = self._db.cursor()
-            for n, v in attrs.iteritems():
+            for n, v in attrs.items():
                 if v == None:
                     c.execute("delete from DeploymentAttrs where deployment = ? and name = ?", (self.uuid, n))
                 else:
@@ -177,16 +178,16 @@ class Deployment(object):
             c.execute("select name, value from DeploymentAttrs where deployment = ?", (self.uuid,))
             rows = c.fetchall()
             res = {row[0]: row[1] for row in rows}
-            res['resources'] = {r.name: r.export() for r in self.resources.itervalues()}
+            res['resources'] = {r.name: r.export() for r in self.resources.values()}
             return res
 
 
     def import_(self, attrs):
         with self._db:
-            for k, v in attrs.iteritems():
+            for k, v in attrs.items():
                 if k == 'resources': continue
                 self._set_attr(k, v)
-            for k, v in attrs['resources'].iteritems():
+            for k, v in attrs['resources'].items():
                 if 'type' not in v: raise Exception("imported resource lacks a type")
                 r = self._create_resource(k, v['type'])
                 r.import_(v)
@@ -261,7 +262,7 @@ class Deployment(object):
 
     def _eval_flags(self, exprs):
         flags = self._nix_path_flags()
-        args = {key: RawValue(val) for key, val in self.args.iteritems()}
+        args = {key: RawValue(val) for key, val in self.args.items()}
         exprs_ = [RawValue(x) if x[0] == '<' else x for x in exprs]
 
         extraexprs = [path
@@ -280,8 +281,8 @@ class Deployment(object):
 
     def set_arg(self, name, value):
         """Set a persistent argument to the deployment specification."""
-        assert isinstance(name, basestring)
-        assert isinstance(value, basestring)
+        assert isinstance(name, str)
+        assert isinstance(value, str)
         args = self.args
         args[name] = value
         self.args = args
@@ -289,7 +290,7 @@ class Deployment(object):
 
     def set_argstr(self, name, value):
         """Set a persistent argument to the deployment specification."""
-        assert isinstance(value, basestring)
+        assert isinstance(value, str)
         self.set_arg(name, py2nix(value, inline=True))
 
 
@@ -421,10 +422,10 @@ class Deployment(object):
         active_machines = self.active
         active_resources = self.active_resources
 
-        attrs_per_resource = {m.name: [] for m in active_resources.itervalues()}
-        authorized_keys = {m.name: [] for m in active_machines.itervalues()}
-        kernel_modules = {m.name: set() for m in active_machines.itervalues()}
-        trusted_interfaces = {m.name: set() for m in active_machines.itervalues()}
+        attrs_per_resource = {m.name: [] for m in active_resources.values()}
+        authorized_keys = {m.name: [] for m in active_machines.values()}
+        kernel_modules = {m.name: set() for m in active_machines.values()}
+        trusted_interfaces = {m.name: set() for m in active_machines.values()}
 
         # Hostnames should be accumulated like this:
         #
@@ -450,7 +451,7 @@ class Deployment(object):
             attrs_list = attrs_per_resource[m.name]
 
             # Emit configuration to realise encrypted peer-to-peer links.
-            for m2 in active_resources.itervalues():
+            for m2 in active_resources.values():
                 ip = m.address_to(m2)
                 if ip:
                     hosts[m.name][ip] += [m2.name, m2.name + "-unencrypted"]
@@ -528,7 +529,7 @@ class Deployment(object):
                         ('system', 'nixosVersionSuffix'): self.nixos_version_suffix
                     })
 
-        for m in active_machines.itervalues():
+        for m in active_machines.values():
             do_machine(m)
 
         def emit_resource(r):
@@ -536,7 +537,7 @@ class Deployment(object):
             config.extend(attrs_per_resource[r.name])
             if is_machine(r):
                 # Sort the hosts by its canonical host names.
-                sorted_hosts = sorted(hosts[r.name].iteritems(),
+                sorted_hosts = sorted(iter(hosts[r.name].items()),
                                       key=lambda item: item[1][0])
                 # Just to remember the format:
                 #   ip_address canonical_hostname [aliases...]
@@ -563,7 +564,7 @@ class Deployment(object):
 
 
                 # Add SSH public host keys for all machines in network.
-                for m2 in active_machines.itervalues():
+                for m2 in active_machines.values():
                     if hasattr(m2, 'public_host_key') and m2.public_host_key:
                         # Using references to files in same tempdir for now, until NixOS has support
                         # for adding the keys directly as string. This way at least it is compatible
@@ -592,7 +593,7 @@ class Deployment(object):
                 })
 
         return py2nix(reduce(nixmerge, [
-            emit_resource(r) for r in active_resources.itervalues()
+            emit_resource(r) for r in active_resources.values()
         ], {})) + "\n"
 
     def get_profile(self):
@@ -628,9 +629,9 @@ class Deployment(object):
         nixops.util.write_file(phys_expr, p)
         if debug: print("generated physical spec:\n" + p, file=sys.stderr)
 
-        selected = [m for m in self.active.itervalues() if should_do(m, include, exclude)]
+        selected = [m for m in self.active.values() if should_do(m, include, exclude)]
 
-        names = map(lambda m: m.name, selected)
+        names = [m.name for m in selected]
 
         # If we're not running on Linux, then perform the build on the
         # target machines.  FIXME: Also enable this if we're on 32-bit
@@ -693,7 +694,7 @@ class Deployment(object):
 
         nixops.parallel.run_tasks(
             nr_workers=max_concurrent_copy,
-            tasks=self.active.itervalues(), worker_fun=worker)
+            tasks=iter(self.active.values()), worker_fun=worker)
         self.logger.log(ansi_success("{0}> closures copied successfully".format(self.name or "unnamed"), outfile=self.logger._log_file))
 
 
@@ -770,7 +771,7 @@ class Deployment(object):
                 return m.name
             return None
 
-        res = nixops.parallel.run_tasks(nr_workers=max_concurrent_activate, tasks=self.active.itervalues(), worker_fun=worker)
+        res = nixops.parallel.run_tasks(nr_workers=max_concurrent_activate, tasks=iter(self.active.values()), worker_fun=worker)
         failed = [x for x in res if x != None]
         if failed != []:
             raise Exception("activation of {0} of {1} machines failed (namely on {2})"
@@ -779,7 +780,7 @@ class Deployment(object):
 
     def _get_free_resource_index(self):
         index = 0
-        for r in self.resources.itervalues():
+        for r in self.resources.values():
             if r.index != None and index <= r.index:
                 index = r.index + 1
         return index
@@ -788,12 +789,12 @@ class Deployment(object):
     def get_backups(self, include=[], exclude=[]):
         self.evaluate_active(include, exclude) # unnecessary?
         machine_backups = {}
-        for m in self.active.itervalues():
+        for m in self.active.values():
             if should_do(m, include, exclude):
                 machine_backups[m.name] = m.get_backups()
 
         # merging machine backups into network backups
-        backup_ids = [b for bs in machine_backups.values() for b in bs.keys()]
+        backup_ids = [b for bs in list(machine_backups.values()) for b in list(bs.keys())]
         backups = {}
         for backup_id in backup_ids:
             backups[backup_id] = {}
@@ -801,9 +802,9 @@ class Deployment(object):
             backups[backup_id]['info'] = []
             backups[backup_id]['status'] = 'complete'
             backup = backups[backup_id]
-            for m in self.active.itervalues():
+            for m in self.active.values():
                 if should_do(m, include, exclude):
-                    if backup_id in machine_backups[m.name].keys():
+                    if backup_id in list(machine_backups[m.name].keys()):
                         backup['machines'][m.name] = machine_backups[m.name][backup_id]
                         backup['info'].extend(backup['machines'][m.name]['info'])
                         # status is always running when one of the backups is still running
@@ -817,7 +818,7 @@ class Deployment(object):
 
     def clean_backups(self, keep, keep_days, keep_physical = False):
         _backups = self.get_backups()
-        backup_ids = [b for b in _backups.keys()]
+        backup_ids = [b for b in list(_backups.keys())]
         backup_ids.sort()
 
         if keep:
@@ -838,7 +839,7 @@ class Deployment(object):
             def worker(m):
                 m.remove_backup(backup_id, keep_physical)
 
-            nixops.parallel.run_tasks(nr_workers=len(self.active), tasks=self.machines.itervalues(), worker_fun=worker)
+            nixops.parallel.run_tasks(nr_workers=len(self.active), tasks=iter(self.machines.values()), worker_fun=worker)
 
 
     def backup(self, include=[], exclude=[], devices=[]):
@@ -854,7 +855,7 @@ class Deployment(object):
                     m.logger.log("running sync failed on {0}.".format(m.name))
             m.backup(self.definitions[m.name], backup_id, devices)
 
-        nixops.parallel.run_tasks(nr_workers=5, tasks=self.active.itervalues(), worker_fun=worker)
+        nixops.parallel.run_tasks(nr_workers=5, tasks=iter(self.active.values()), worker_fun=worker)
 
         return backup_id
 
@@ -867,7 +868,7 @@ class Deployment(object):
                 if not should_do(m, include, exclude): return
                 m.restore(self.definitions[m.name], backup_id, devices)
 
-            nixops.parallel.run_tasks(nr_workers=-1, tasks=self.active.itervalues(), worker_fun=worker)
+            nixops.parallel.run_tasks(nr_workers=-1, tasks=iter(self.active.values()), worker_fun=worker)
             self.start_machines(include=include, exclude=exclude)
             self.logger.warn("restore finished; please note that you might need to run ‘nixops deploy’ to fix configuration issues regarding changed IP addresses")
 
@@ -877,7 +878,7 @@ class Deployment(object):
 
         # Create state objects for all defined resources.
         with self._db:
-            for m in self.definitions.itervalues():
+            for m in self.definitions.values():
                 if m.name not in self.resources:
                     self._create_resource(m.name, m.get_type())
 
@@ -888,7 +889,7 @@ class Deployment(object):
         # Determine the set of active resources.  (We can't just
         # delete obsolete resources from ‘self.resources’ because they
         # contain important state that we don't want to forget about.)
-        for m in self.resources.values():
+        for m in list(self.resources.values()):
             if m.name in self.definitions:
                 if m.obsolete:
                     self.logger.log("resource ‘{0}’ is no longer obsolete".format(m.name))
@@ -914,7 +915,7 @@ class Deployment(object):
         self.evaluate_active(include, exclude, kill_obsolete)
 
         # Assign each resource an index if it doesn't have one.
-        for r in self.active_resources.itervalues():
+        for r in self.active_resources.values():
             if r.index == None:
                 r.index = self._get_free_resource_index()
                 # FIXME: Logger should be able to do coloring without the need
@@ -930,7 +931,7 @@ class Deployment(object):
         # sort.
         if not dry_run and not build_only:
 
-            for r in self.active_resources.itervalues():
+            for r in self.active_resources.values():
                 defn = self.definitions[r.name]
                 if r.get_type() != defn.get_type():
                     raise Exception("the type of resource ‘{0}’ changed from ‘{1}’ to ‘{2}’, which is currently unsupported"
@@ -947,7 +948,7 @@ class Deployment(object):
                     r.warn("resource type {} doesn't implement a plan operation".format(r.get_type()))
 
             if plan_only:
-                for r in self.active_resources.itervalues():
+                for r in self.active_resources.values():
                     plan_worker(r)
                 return
 
@@ -957,7 +958,7 @@ class Deployment(object):
 
                     # Sleep until all dependencies of this resource have
                     # been created.
-                    deps = r.create_after(self.active_resources.itervalues(), self.definitions[r.name])
+                    deps = r.create_after(iter(self.active_resources.values()), self.definitions[r.name])
                     for dep in deps:
                         dep._created_event.wait()
                         # !!! Should we print a message here?
@@ -995,7 +996,7 @@ class Deployment(object):
                 finally:
                     r._created_event.set()
 
-            nixops.parallel.run_tasks(nr_workers=-1, tasks=self.active_resources.itervalues(), worker_fun=worker)
+            nixops.parallel.run_tasks(nr_workers=-1, tasks=iter(self.active_resources.values()), worker_fun=worker)
 
         if create_only: return
 
@@ -1030,7 +1031,7 @@ class Deployment(object):
             # Now create the resource itself.
             r.after_activation(self.definitions[r.name])
 
-        nixops.parallel.run_tasks(nr_workers=-1, tasks=self.active_resources.itervalues(), worker_fun=cleanup_worker)
+        nixops.parallel.run_tasks(nr_workers=-1, tasks=iter(self.active_resources.values()), worker_fun=cleanup_worker)
         self.logger.log(ansi_success("{0}> deployment finished successfully".format(self.name or "unnamed"), outfile=self.logger._log_file))
 
 
@@ -1082,7 +1083,7 @@ class Deployment(object):
             names.add(filename)
 
         # Update the set of active machines.
-        for m in self.machines.values():
+        for m in list(self.machines.values()):
             if m.name in names:
                 if m.obsolete:
                     self.logger.log("machine ‘{0}’ is no longer obsolete".format(m.name))
@@ -1108,10 +1109,10 @@ class Deployment(object):
 
     def _destroy_resources(self, include=[], exclude=[], wipe=False):
 
-        for r in self.resources.itervalues():
+        for r in self.resources.values():
             r._destroyed_event = threading.Event()
             r._errored = False
-            for rev_dep in r.destroy_before(self.resources.itervalues()):
+            for rev_dep in r.destroy_before(iter(self.resources.values())):
                 try:
                     rev_dep._wait_for.append(r)
                 except AttributeError:
@@ -1136,7 +1137,7 @@ class Deployment(object):
             finally:
                 m._destroyed_event.set()
 
-        nixops.parallel.run_tasks(nr_workers=-1, tasks=self.resources.values(), worker_fun=worker)
+        nixops.parallel.run_tasks(nr_workers=-1, tasks=list(self.resources.values()), worker_fun=worker)
 
     def destroy_resources(self, include=[], exclude=[], wipe=False):
         """Destroy all active and obsolete resources."""
@@ -1152,7 +1153,7 @@ class Deployment(object):
             profile = self.create_profile()
             attrs = {m.name:
                      Call(RawValue("builtins.storePath"), m.cur_toplevel)
-                     for m in self.active.itervalues() if m.cur_toplevel}
+                     for m in self.active.values() if m.cur_toplevel}
             if subprocess.call(
                 ["nix-env", "-p", profile, "--set", "*", "-I", "nixops=" + self.expr_path,
                  "-f", "<nixops/update-profile.nix>",
@@ -1165,7 +1166,7 @@ class Deployment(object):
             if not should_do(m, include, exclude): return
             if m.delete_resources(): self.delete_resource(m)
 
-        nixops.parallel.run_tasks(nr_workers=-1, tasks=self.resources.values(), worker_fun=worker)
+        nixops.parallel.run_tasks(nr_workers=-1, tasks=list(self.resources.values()), worker_fun=worker)
 
     def reboot_machines(self, include=[], exclude=[], wait=False,
                         rescue=False, hard=False):
@@ -1180,7 +1181,7 @@ class Deployment(object):
             else:
                 m.reboot(hard=hard)
 
-        nixops.parallel.run_tasks(nr_workers=-1, tasks=self.active.itervalues(), worker_fun=worker)
+        nixops.parallel.run_tasks(nr_workers=-1, tasks=iter(self.active.values()), worker_fun=worker)
 
 
     def stop_machines(self, include=[], exclude=[]):
@@ -1190,7 +1191,7 @@ class Deployment(object):
             if not should_do(m, include, exclude): return
             m.stop()
 
-        nixops.parallel.run_tasks(nr_workers=-1, tasks=self.active.itervalues(), worker_fun=worker)
+        nixops.parallel.run_tasks(nr_workers=-1, tasks=iter(self.active.values()), worker_fun=worker)
 
 
     def start_machines(self, include=[], exclude=[]):
@@ -1200,7 +1201,7 @@ class Deployment(object):
             if not should_do(m, include, exclude): return
             m.start()
 
-        nixops.parallel.run_tasks(nr_workers=-1, tasks=self.active.itervalues(), worker_fun=worker)
+        nixops.parallel.run_tasks(nr_workers=-1, tasks=iter(self.active.values()), worker_fun=worker)
 
 
     def is_valid_resource_name(self, name):
@@ -1232,7 +1233,7 @@ class Deployment(object):
             if not should_do(m, include, exclude): return
             m.send_keys()
 
-        nixops.parallel.run_tasks(nr_workers=-1, tasks=self.active.itervalues(), worker_fun=worker)
+        nixops.parallel.run_tasks(nr_workers=-1, tasks=iter(self.active.values()), worker_fun=worker)
 
 
 def should_do(m, include, exclude):
