@@ -97,15 +97,15 @@ class Deployment(object):
 
     @property
     def machines(self):
-        return {n: r for n, r in list(self.resources.items()) if is_machine(r)}
+        return {n: r for n, r in self.resources.items() if is_machine(r)}
 
     @property
     def active(self): # FIXME: rename to "active_machines"
-        return {n: r for n, r in list(self.resources.items()) if is_machine(r) and not r.obsolete}
+        return {n: r for n, r in self.resources.items() if is_machine(r) and not r.obsolete}
 
     @property
     def active_resources(self):
-        return {n: r for n, r in list(self.resources.items()) if not r.obsolete}
+        return {n: r for n, r in self.resources.items() if not r.obsolete}
 
 
     def get_typed_resource(self, name, type):
@@ -537,7 +537,7 @@ class Deployment(object):
             config.extend(attrs_per_resource[r.name])
             if is_machine(r):
                 # Sort the hosts by its canonical host names.
-                sorted_hosts = sorted(iter(hosts[r.name].items()),
+                sorted_hosts = sorted(hosts[r.name].items(),
                                       key=lambda item: item[1][0])
                 # Just to remember the format:
                 #   ip_address canonical_hostname [aliases...]
@@ -794,7 +794,7 @@ class Deployment(object):
                 machine_backups[m.name] = m.get_backups()
 
         # merging machine backups into network backups
-        backup_ids = [b for bs in list(machine_backups.values()) for b in list(bs.keys())]
+        backup_ids = [b for bs in machine_backups.values() for b in bs.keys()]
         backups = {}
         for backup_id in backup_ids:
             backups[backup_id] = {}
@@ -804,7 +804,7 @@ class Deployment(object):
             backup = backups[backup_id]
             for m in self.active.values():
                 if should_do(m, include, exclude):
-                    if backup_id in list(machine_backups[m.name].keys()):
+                    if backup_id in machine_backups[m.name].keys():
                         backup['machines'][m.name] = machine_backups[m.name][backup_id]
                         backup['info'].extend(backup['machines'][m.name]['info'])
                         # status is always running when one of the backups is still running
@@ -812,14 +812,13 @@ class Deployment(object):
                             backup['status'] = backup['machines'][m.name]['status']
                     else:
                         backup['status'] = 'incomplete'
-                        backup['info'].extend(["No backup available for {0}".format(m.name)]);
+                        backup['info'].extend(["No backup available for {0}".format(m.name)])
 
         return backups
 
     def clean_backups(self, keep, keep_days, keep_physical = False):
         _backups = self.get_backups()
-        backup_ids = [b for b in list(_backups.keys())]
-        backup_ids.sort()
+        backup_ids = sorted(_backups.keys())
 
         if keep:
             index = len(backup_ids)-keep
@@ -889,7 +888,7 @@ class Deployment(object):
         # Determine the set of active resources.  (We can't just
         # delete obsolete resources from ‘self.resources’ because they
         # contain important state that we don't want to forget about.)
-        for m in list(self.resources.values()):
+        for m in self.resources.values():
             if m.name in self.definitions:
                 if m.obsolete:
                     self.logger.log("resource ‘{0}’ is no longer obsolete".format(m.name))
@@ -1083,14 +1082,14 @@ class Deployment(object):
             names.add(filename)
 
         # Update the set of active machines.
-        for m in list(self.machines.values()):
+        for m in self.machines.values():
             if m.name in names:
                 if m.obsolete:
                     self.logger.log("machine ‘{0}’ is no longer obsolete".format(m.name))
                     m.obsolete = False
             else:
                 self.logger.log("machine ‘{0}’ is obsolete".format(m.name))
-                if not m.obsolete: m.obsolete = True
+                m.obsolete = True
 
         self.copy_closures(self.configs_path, include=include, exclude=exclude,
                            max_concurrent_copy=max_concurrent_copy)

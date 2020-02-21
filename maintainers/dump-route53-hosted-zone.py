@@ -19,21 +19,21 @@ records = client.list_resource_record_sets(HostedZoneId=zone_id)['ResourceRecord
 by_hostname = {}
 for record in records:
     name = record['Name']
-    if not name in by_hostname:
+    if name not in by_hostname:
         by_hostname[name] = []
     by_hostname[name].append(record)
 
-count = {k : len([x for x in v if x['Type']=='A']) for (k, v) in list(by_hostname.items())}
+count = {k: sum(1 for x in v if x['Type'] == 'A') for (k, v) in by_hostname.items()}
 
 def print_record(record):
-    if record['Type'] in ( 'NS', 'SOA') :
+    if record['Type'] in ('NS', 'SOA'):
         return
 
     res = record['Name'][:-(len(domain)+1)]
     mv = False
     if count[record['Name']] > 1:
         mv = True
-        res = res + "-" +  record['SetIdentifier']
+        res = res + "-" + record['SetIdentifier']
     if res == "":
         res = record['Type'] + "-record"
 
@@ -72,6 +72,7 @@ print(('''
     }};
 '''.format(domain)))
 print('  resources.route53RecordSets = {')
-list(map(print_record, records))
+for record in records:
+    print_record(record)
 print('  };')
 print('}')
