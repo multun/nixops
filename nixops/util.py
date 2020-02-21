@@ -310,7 +310,8 @@ class TeeStdout(StringIO):
         sys.stdout = self.stdout
     def write(self, data):
         self.stdout.write(data)
-        for l in data.split('\n'):
+        bytesified = data if isinstance(data, bytes) else data.encode('utf-8')
+        for l in bytesified.split(b'\n'):
             self.logger.info(l)
     def fileno(self):
         return self.stdout.fileno()
